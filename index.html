@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Time Ladder</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, sans-serif;
+      background: #f3f5f8;
+      color: #172033;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(100%, 520px);
+      padding: 32px;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 12px 40px #17203318;
+    }
+
+    h1 { margin-top: 0; }
+    p { line-height: 1.5; color: #4b5568; }
+
+    label {
+      display: block;
+      font-weight: 650;
+      margin: 20px 0 8px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 90px;
+      padding: 12px;
+      border: 1px solid #cbd2df;
+      border-radius: 10px;
+      font: inherit;
+      resize: vertical;
+    }
+
+    .target {
+      margin: 28px 0;
+      padding: 24px;
+      text-align: center;
+      background: #f3f5f8;
+      border-radius: 14px;
+    }
+
+    .target small {
+      display: block;
+      color: #5e687b;
+      margin-bottom: 8px;
+    }
+
+    #targetTime {
+      font-size: clamp(2rem, 10vw, 3.5rem);
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #status {
+      min-height: 1.5em;
+      text-align: center;
+      font-weight: 600;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 22px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      background: #2457d6;
+      color: white;
+    }
+
+    button.secondary { background: #e5e9f1; color: #172033; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #result {
+      margin-top: 22px;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Time Ladder</h1>
+    <p>
+      Try to stop each round when you think the target duration has passed.
+      Your elapsed time won’t be shown until you stop.
+    </p>
+
+    <label for="ladderInput">Ladder durations (seconds)</label>
+    <textarea id="ladderInput" aria-describedby="inputHelp">0.5, 1, 2, 4, 8</textarea>
+    <p id="inputHelp">Enter positive numbers separated by commas or new lines.</p>
+
+    <div class="target" aria-live="polite">
+      <small id="roundLabel">Ready for round 1</small>
+      <div id="targetTime">—</div>
+    </div>
+
+    <div id="status" role="status">Set your ladder, then press Start.</div>
+
+    <div class="buttons">
+      <button id="startButton">Start</button>
+      <button id="stopButton" class="secondary" disabled>Stop</button>
+      <button id="resetButton" class="secondary">Reset</button>
+    </div>
+
+    <div id="result" aria-live="polite"></div>
+  </main>
+
+  <script>
+    const ladderInput = document.querySelector("#ladderInput");
+    const roundLabel = document.querySelector("#roundLabel");
+    const targetTime = document.querySelector("#targetTime");
+    const status = document.querySelector("#status");
+    const result = document.querySelector("#result");
+    const startButton = document.querySelector("#startButton");
+    const stopButton = document.querySelector("#stopButton");
+    const resetButton = document.querySelector("#resetButton");
+
+    let ladder = [];
+    let roundIndex = 0;
+    let startedAt = null;
+    let running = false;
+    let results = [];
+
+    function parseLadder() {
+      const values = ladderInput.value
+        .split(/[,\n]+/)
+        .map(value => value.trim())
+        .filter(Boolean)
+        .map(Number);
+
+      if (!values.length || values.some(value => !Number.isFinite(value) || value <= 0)) {
+        throw new Error("Enter one or more positive durations, such as 0.5, 1, 2, 4.");
+      }
+
+      return values;
+    }
+
+    function showRound() {
+      roundLabel.textContent = `Round ${roundIndex + 1} of ${ladder.length}`;
+      targetTime.textContent = `${ladder[roundIndex]} s`;
+    }
+
+    function startRound() {
+      if (running) return;
+
+      if (roundIndex >= ladder.length) {
+        status.textContent = "Ladder complete! Press Reset to play again.";
+        return;
+      }
+
+      startedAt = performance.now();
+      running = true;
+      startButton.disabled = true;
+      stopButton.disabled = false;
+      ladderInput.disabled = true;
+      result.textContent = "";
+      status.textContent = "Timer running — stop when you think the target has passed.";
+    }
+
+    function stopRound() {
+      if (!running) return;
+
+      const elapsed = (performance.now() - startedAt) / 1000;
+      const target = ladder[roundIndex];
+      const difference = elapsed - target;
+      const percentError = (difference / target) * 100;
+
+      running = false;
+      results.push({ target, elapsed, difference, percentError });
+      stopButton.disabled = true;
+      startButton.disabled = false;
+
+      const direction = difference >= 0 ? "late" : "early";
+      result.innerHTML =
+        `Your time: <strong>${elapsed.toFixed(3)} s</strong><br>` +
+        `Target: <strong>${target} s</strong> · ` +
+        `${Math.abs(difference).toFixed(3)} s ${direction} ` +
+        `(${Math.abs(percentError).toFixed(1)}% error)`;
+
+      roundIndex++;
+
+      if (roundIndex < ladder.length) {
+        showRound();
+        status.textContent = "Ready for the next round. Press Start when you’re ready.";
+      } else {
+        roundLabel.textContent = "Ladder complete";
+        targetTime.textContent = "Finished!";
+        status.textContent = "Nice work — press Reset to try again.";
+        startButton.disabled = true;
+        ladderInput.disabled = false;
+      }
+    }
+
+    startButton.addEventListener("click", () => {
+      if (roundIndex === 0 && !running && results.length === 0) {
+        try {
+          ladder = parseLadder();
+          showRound();
+        } catch (error) {
+          status.textContent = error.message;
+          return;
+        }
+      }
+      startRound();
+    });
+
+    stopButton.addEventListener("click", stopRound);
+
+    resetButton.addEventListener("click", () => {
+      running = false;
+      startedAt = null;
+      roundIndex = 0;
+      results = [];
+      ladder = [];
+
+      ladderInput.disabled = false;
+      startButton.disabled = false;
+      stopButton.disabled = true;
+      roundLabel.textContent = "Ready for round 1";
+      targetTime.textContent = "—";
+      status.textContent = "Set your ladder, then press Start.";
+      result.textContent = "";
+    });
+  </script>
+</body>
+</html>
